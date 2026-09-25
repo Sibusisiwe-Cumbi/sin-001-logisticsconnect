@@ -1,7 +1,10 @@
 package co.wethinkcode.logisticsconnect;
 
+import co.wethinkcode.logisticsconnect.mq.DelayStagePublisher;
+import co.wethinkcode.logisticsconnect.mq.MqConfig;
 import io.javalin.Javalin;
 
+import javax.jms.JMSException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -13,6 +16,18 @@ public class DelayStageServiceApp {
     public static void main(String[] args) {
         // In-memory only: hubId -> current delay stage. Unknown hubs default to 0 (no delay).
         Map<String, Integer> stageByHub = new ConcurrentHashMap<>();
+
+        // Stage 3: publish every stage change to package-status-topic instead of (or as
+        // well as) returning it synchronously, so transit-service can subscribe instead
+        // of calling this service directly.
+        DelayStagePublisher delayStagePublisher = new DelayStagePublisher();
+        try {
+            delayStagePublisher.start();
+        } catch (JMSException e) {
+            System.err.println("Warning: could not connect to ActiveMQ broker at " + MqConfig.BROKER_URL
+                    + " - stage changes will not be published until it's reachable: " + e.getMessage());
+        }
+        Runtime.getRuntime().addShutdownHook(new Thread(delayStagePublisher::close));
 
         Javalin app = Javalin.create().start(7052);
 
@@ -45,9 +60,9 @@ public class DelayStageServiceApp {
 
             stageByHub.put(hubId, body.stage);
 
-            // MQ TODO (stage 3): publish {hubId, stage, timestamp} to MqConfig.TOPIC here on
-            // every successful stage change, using MqConfig.BROKER_URL
-            // (see co.wethinkcode.logisticsconnect.mq.MqConfig)
+            // Stage 3: publish {hubId, stage, timestamp} to package-status-topic on every
+            // successful stage change (see co.wethinkcode.logisticsconnect.mq.DelayStagePublisher).
+            delayStagePublisher.publishStageChange(hubId, body.stage);
 
             ctx.status(200).json(Map.of("hubId", hubId, "stage", body.stage));
         });
