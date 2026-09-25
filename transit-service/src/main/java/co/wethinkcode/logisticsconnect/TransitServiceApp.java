@@ -1,7 +1,10 @@
 package co.wethinkcode.logisticsconnect;
 
+import co.wethinkcode.logisticsconnect.mq.DelayStageSubscriber;
+import co.wethinkcode.logisticsconnect.mq.MqConfig;
 import io.javalin.Javalin;
 
+import javax.jms.JMSException;
 import java.util.Map;
 
 public class TransitServiceApp {
@@ -14,6 +17,17 @@ public class TransitServiceApp {
 
     public static void main(String[] args) {
         DownstreamClient downstreamClient = new DownstreamClient();
+
+        // Stage 3: subscribe to package-status-topic instead of calling
+        // delay-stage-service synchronously for every /eta/{hubId} request.
+        DelayStageSubscriber delayStageSubscriber = new DelayStageSubscriber();
+        try {
+            delayStageSubscriber.start();
+        } catch (JMSException e) {
+            System.err.println("Warning: could not connect to ActiveMQ broker at " + MqConfig.BROKER_URL
+                    + " - delay stages will default to 0 until it's reachable: " + e.getMessage());
+        }
+        Runtime.getRuntime().addShutdownHook(new Thread(delayStageSubscriber::close));
 
         Javalin app = Javalin.create().start(7053);
 
@@ -34,25 +48,20 @@ public class TransitServiceApp {
                 return;
             }
 
-            DelayStage delayStage;
-            try {
-                // MQ TODO (stage 3): replace this synchronous call with the stage last
-                // received from subscribing to MqConfig.TOPIC instead of calling
-                // delay-stage-service directly (see co.wethinkcode.logisticsconnect.mq.MqConfig)
-                delayStage = downstreamClient.fetchDelayStage(hubId);
-            } catch (Exception e) {
-                ctx.status(502).json(Map.of("error", "delay-stage-service unreachable: " + e.getMessage()));
-                return;
-            }
+            // Stage 3: read the last stage received over package-status-topic instead of
+            // calling delay-stage-service directly. No HTTP round trip, so there's no
+            // "unreachable" failure mode here - an unknown hub just reads as stage 0
+            // (no delay) until a message for it arrives.
+            int stage = delayStageSubscriber.getStage(hubId);
 
-            int delayHours = delayStage.stage * DELAY_HOURS_PER_STAGE;
+            int delayHours = stage * DELAY_HOURS_PER_STAGE;
             int estimatedEtaHours = BASE_ETA_HOURS + delayHours;
 
             ctx.json(Map.of(
                     "hubId", hub.hubId,
                     "province", hub.province,
                     "sortingCenter", hub.sortingCenter,
-                    "delayStage", delayStage.stage,
+                    "delayStage", stage,
                     "baseEtaHours", BASE_ETA_HOURS,
                     "delayHours", delayHours,
                     "estimatedEtaHours", estimatedEtaHours

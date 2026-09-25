@@ -9,14 +9,15 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 
 /**
- * Talks to hub-service and delay-stage-service over plain HTTP — this is the
- * stage-2 synchronous wiring. Stage 3 replaces the delay-stage-service leg with
- * an MQ subscription instead of the fetchDelayStage call here.
+ * Talks to hub-service over plain HTTP for hub/location data - this is the stage-2
+ * synchronous wiring that stage 3 leaves in place. The old delay-stage-service leg
+ * (fetchDelayStage, formerly GET :7052/delay-stage/{hubId}) has been removed: as of
+ * stage 3, delay-stage data arrives via the package-status-topic MQ subscription in
+ * {@link co.wethinkcode.logisticsconnect.mq.DelayStageSubscriber} instead.
  */
 public class DownstreamClient {
 
     private static final String HUB_SERVICE_URL = "http://localhost:7051";
-    private static final String DELAY_STAGE_SERVICE_URL = "http://localhost:7052";
 
     private final HttpClient client = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
@@ -31,14 +32,6 @@ public class DownstreamClient {
             throw new IllegalStateException("hub-service returned status " + response.statusCode());
         }
         return mapper.readValue(response.body(), Hub.class);
-    }
-
-    public DelayStage fetchDelayStage(String hubId) throws Exception {
-        HttpResponse<String> response = get(DELAY_STAGE_SERVICE_URL + "/delay-stage/" + hubId);
-        if (response.statusCode() != 200) {
-            throw new IllegalStateException("delay-stage-service returned status " + response.statusCode());
-        }
-        return mapper.readValue(response.body(), DelayStage.class);
     }
 
     private HttpResponse<String> get(String url) throws Exception {
