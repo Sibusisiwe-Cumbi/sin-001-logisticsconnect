@@ -1,41 +1,25 @@
 # HubServiceApp
 
-## Overview
+Serves cleaned hub, province, and sorting-centre data. It does not parse the CSV itself; on startup
+it loads the cleaned records from `ingestion-service` at `http://localhost:7050/hubs`.
 
-Serves provinces and sorting centers (place-name source of truth).
+## Build and run
 
-Part of the [LogisticsConnect](../README.md) project. Independent Maven module, no
-parent pom.
+Start ingestion first, then:
 
-## Project structure
-
-```
-hub-service/
-├── pom.xml
-└── src/main/java/co/wethinkcode/logisticsconnect/HubServiceApp.java
-```
-
-## Build
-
-```
-mvn package
-```
-
-## Run
-
-```
-java -jar target/hub-service.jar
+```bash
+mvn test package
+java -Xms32m -Xmx256m -jar target/hub-service.jar
 ```
 
 Listens on port `7051`.
 
-## Test
+## Endpoints
 
-No automated tests yet. Manually verify it's up:
-
+```text
+GET /health
+GET /hubs
+GET /hubs/{hubId}
 ```
-curl http://localhost:7051/health   # -> OK
-```
 
-To add real tests, add JUnit 5 + the Surefire plugin to `pom.xml`, put tests under
-`src/test/java/co/wethinkcode/logisticsconnect/`, and run `mvn test`.
+Unknown hub IDs return HTTP 404.

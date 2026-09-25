@@ -1,94 +1,36 @@
 # IngestionServiceApp
 
-## Overview
+Loads the legacy `hubs-global.csv`, cleans it, resolves duplicate real-world hubs, and exposes
+the cleaned records over REST.
 
-Parses and cleans `hubs-global.csv`, a messy legacy export of hubs, sorting centers, and regional districts data, and is the
-first stop in the LogisticsConnect pipeline. Independent Maven module, no parent pom.
+## Data-cleaning policy
 
-Part of the [LogisticsConnect](../README.md) project.
+- IDs are trimmed and uppercased.
+- Repeated whitespace is collapsed.
+- Known province spelling/casing variants are canonicalised.
+- Sorting-centre names are normalised to title case.
+- Boolean flags are normalised to `true`/`false`.
+- `unknown` and `N/A` active values are treated as inactive because the API contract exposes a
+  boolean field; this conservative rule is documented rather than silently leaving placeholders.
+- Duplicate records are grouped by canonical province + sorting centre.
+- A missing province is recovered from another record for the same sorting centre where possible.
+- The smallest canonical hub ID becomes the representative ID; all contributing IDs are retained
+  in `mergedFrom`.
 
-## Known data issues
+The supplied CSV contains 18 rows and produces 10 cleaned records.
 
-`hubs-global.csv` is deliberately messy — cleaning it is the point of this service. Look
-out for (and handle) at least:
+## Build and run
 
-- **Inconsistent casing** in IDs, names, and status/category values (`Active` /
-  `active` / `ACTIVE`)
-- **Padding** — leading/trailing spaces, and the occasional double space, inside
-  fields
-- **Duplicate records** for the same real-world entity, written with a different ID
-  casing/format and/or slightly different field values
-- **Inconsistent date formats** (`YYYY-MM-DD`, `MM/DD/YYYY`, `DD-MM-YYYY`, one- and
-  two-digit months/days) and outright invalid dates
-- **Missing / placeholder values** — blank fields, `N/A`, `n/a`, `TBD`, `unknown`,
-  `-`, `NaN`
-- **Invalid or non-numeric values** in numeric columns (negative counts, spelled-out
-  numbers, unrealistic values)
-- **Inconsistent boolean/flag representations** (`Y`/`N`, `yes`/`no`, `1`/`0`,
-  `true`/`FALSE`)
-- **Naming/spelling variants** for the same thing (e.g. regional spelling
-  differences, synonyms)
-
-## Worked example
-
-Two raw rows from `hubs-global.csv`:
-
-```
-hub_id, Province ,sorting_center,active
-H-502 ,gauteng,Pretoria North,0
-H-505,Western Cape ,Cape Town  Port,TRUE
+```bash
+mvn test package
+java -Xms32m -Xmx256m -jar target/ingestion-service.jar
 ```
 
-A reasonable cleaned shape for those same two rows:
+Listens on port `7050`.
 
-| hub_id | province | sorting_center | active |
-|---|---|---|---|
-| H-502 | Gauteng | Pretoria North | false |
-| H-505 | Western Cape | Cape Town Port | true |
+## Endpoints
 
-That covers padding (`H-502 ` → `H-502`), casing (`gauteng` → `Gauteng`), a
-collapsed double space (`Cape Town  Port` → `Cape Town Port`), and boolean
-normalization (`0`/`TRUE` → `false`/`true`). Column names, exact casing
-convention, and boolean representation are up to you — just be consistent.
-
-This doesn't cover deduplication: rows like `H-500`, `H-504`, `H-510`, and `H-515`
-all describe "Johannesburg Central" in "Gauteng" under different hub IDs, with
-conflicting `active` values between them. How you resolve that (which one wins,
-how you detect they're duplicates in the first place) is part of the exercise —
-there's no single correct answer, but be ready to explain your reasoning.
-
-## Project structure
-
+```text
+GET /health
+GET /hubs
 ```
-ingestion-service/
-├── pom.xml
-└── src/main/
-    ├── java/co/wethinkcode/logisticsconnect/IngestionServiceApp.java
-    └── resources/hubs-global.csv
-```
-
-## Build
-
-```
-mvn package
-```
-
-## Run
-
-```
-java -jar target/ingestion-service.jar
-```
-
-Listens on port `7050`. Currently just exposes `/health` — the actual CSV
-parsing/cleaning logic is a TODO.
-
-## Test
-
-No automated tests yet. Manually verify it's up:
-
-```
-curl http://localhost:7050/health   # -> OK
-```
-
-To add real tests, add JUnit 5 + the Surefire plugin to `pom.xml`, put tests under
-`src/test/java/co/wethinkcode/logisticsconnect/`, and run `mvn test`.

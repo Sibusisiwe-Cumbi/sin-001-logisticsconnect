@@ -58,13 +58,23 @@ public class DelayStageServiceApp {
                 return;
             }
 
+            int previousStage = stageByHub.getOrDefault(hubId, MIN_STAGE);
+            if (previousStage == body.stage) {
+                ctx.status(200).json(Map.of("hubId", hubId, "stage", body.stage, "changed", false));
+                return;
+            }
+
+            // Persist the state only after the MQ publish succeeds. That keeps the
+            // in-memory state consistent with the event stream when the broker is down.
+            try {
+                delayStagePublisher.publishStageChange(hubId, body.stage);
+            } catch (IllegalStateException e) {
+                ctx.status(503).json(Map.of("error", "message broker unavailable", "detail", e.getMessage()));
+                return;
+            }
+
             stageByHub.put(hubId, body.stage);
-
-            // Stage 3: publish {hubId, stage, timestamp} to package-status-topic on every
-            // successful stage change (see co.wethinkcode.logisticsconnect.mq.DelayStagePublisher).
-            delayStagePublisher.publishStageChange(hubId, body.stage);
-
-            ctx.status(200).json(Map.of("hubId", hubId, "stage", body.stage));
+            ctx.status(200).json(Map.of("hubId", hubId, "stage", body.stage, "changed", true));
         });
     }
 

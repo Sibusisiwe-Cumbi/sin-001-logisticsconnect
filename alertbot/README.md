@@ -1,52 +1,26 @@
 # AlertBotApp
 
-## Overview
+Stage-4 stretch goal. Subscribes to `package-status-topic` and emits a simulated alert when a hub
+crosses from below delay stage 5 to stage 5 or above.
 
-Posts proactive delay notifications to public transit social media pages (simulated).
+No real social-media API is called; the alert is represented by a log line.
 
-Part of the [LogisticsConnect](../README.md) project — its alerting service.
-Independent Maven module, no parent pom.
+## Build and run
 
-Mechanism: Outbound webhook, simulated social post
+Start an ActiveMQ broker on `tcp://localhost:61616`, then:
 
-MQ (stretch goal): this service subscribes to the ActiveMQ topic
-`package-status-topic` — see [`../common/`](../common). Broker URL and topic name
-come from the common `co.wethinkcode.logisticsconnect.mq.MqConfig` class alongside
-it in this module. Use the stage in each message to decide when to raise an alert
-(e.g. above a threshold you choose).
-
-## Project structure
-
-```
-alertbot/
-├── pom.xml
-└── src/main/java/co/wethinkcode/logisticsconnect/
-    ├── AlertBotApp.java
-    └── mq/
-        └── MqConfig.java
-```
-
-## Build
-
-```
-mvn package
-```
-
-## Run
-
-```
-java -jar target/alertbot.jar
+```bash
+mvn test package
+java -Xms32m -Xmx256m -jar target/alertbot.jar
 ```
 
 Listens on port `7054`.
 
-## Test
+## Endpoint
 
-No automated tests yet. Manually verify it's up:
-
-```
-curl http://localhost:7054/health   # -> OK
+```text
+GET /health
 ```
 
-To add real tests, add JUnit 5 + the Surefire plugin to `pom.xml`, put tests under
-`src/test/java/co/wethinkcode/logisticsconnect/`, and run `mvn test`.
+The useful work happens asynchronously. The subscriber reconnects if the broker is temporarily
+unavailable at startup.

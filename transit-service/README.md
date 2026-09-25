@@ -1,46 +1,40 @@
 # TransitServiceApp
 
-## Overview
+Calculates an ETA using hub information from `hub-service` and the latest delay stage received
+asynchronously from `package-status-topic`.
 
-Calculates estimated arrival windows based on hub and delay stage.
+## Stage 3 architecture
 
-Part of the [LogisticsConnect](../README.md) project. Independent Maven module, no
-parent pom.
+Transit no longer calls `delay-stage-service` over HTTP. `DelayStageSubscriber` listens to the
+ActiveMQ topic and keeps the latest stage per hub in memory. If the broker is temporarily down at
+startup, the subscriber retries in the background.
 
-MQ: this service subscribes to the ActiveMQ topic `package-status-topic` — see [`../common/`](../common). Broker URL and topic name come from the common `co.wethinkcode.logisticsconnect.mq.MqConfig` class alongside it in this module.
+## ETA model
 
-## Project structure
+The assignment does not prescribe a real route model, so this implementation uses:
 
-```
-transit-service/
-├── pom.xml
-└── src/main/java/co/wethinkcode/logisticsconnect/
-    ├── TransitServiceApp.java
-    └── mq/
-        └── MqConfig.java
-```
-
-## Build
-
-```
-mvn package
+```text
+base ETA = 24 hours
+delay = stage * 4 hours
+estimated ETA = 24 + delay
 ```
 
-## Run
+## Build and run
 
-```
-java -jar target/transit-service.jar
+Start the broker and `hub-service` first, then:
+
+```bash
+mvn test package
+java -Xms32m -Xmx256m -jar target/transit-service.jar
 ```
 
 Listens on port `7053`.
 
-## Test
+## Endpoints
 
-No automated tests yet. Manually verify it's up:
-
+```text
+GET /health
+GET /eta/{hubId}
 ```
-curl http://localhost:7053/health   # -> OK
-```
 
-To add real tests, add JUnit 5 + the Surefire plugin to `pom.xml`, put tests under
-`src/test/java/co/wethinkcode/logisticsconnect/`, and run `mvn test`.
+Unknown hubs return HTTP 404. If hub-service is unavailable, ETA requests return HTTP 502.

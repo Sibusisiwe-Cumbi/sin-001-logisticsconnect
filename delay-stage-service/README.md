@@ -1,46 +1,40 @@
 # DelayStageServiceApp
 
-## Overview
+Tracks the current Transit Delay Stage (0–8) in memory and publishes successful stage changes to
+the ActiveMQ topic `package-status-topic`.
 
-Tracks the Transit Delay Stage (0-8, e.g. weather shutdowns).
+## Build and run
 
-Part of the [LogisticsConnect](../README.md) project. Independent Maven module, no
-parent pom.
+Start an ActiveMQ broker on `tcp://localhost:61616`, then:
 
-MQ: this service publishes to the ActiveMQ topic `package-status-topic` — see [`../common/`](../common). Broker URL and topic name come from the common `co.wethinkcode.logisticsconnect.mq.MqConfig` class alongside it in this module.
-
-## Project structure
-
-```
-delay-stage-service/
-├── pom.xml
-└── src/main/java/co/wethinkcode/logisticsconnect/
-    ├── DelayStageServiceApp.java
-    └── mq/
-        └── MqConfig.java
-```
-
-## Build
-
-```
-mvn package
-```
-
-## Run
-
-```
-java -jar target/delay-stage-service.jar
+```bash
+mvn test package
+java -Xms32m -Xmx256m -jar target/delay-stage-service.jar
 ```
 
 Listens on port `7052`.
 
-## Test
+## Endpoints
 
-No automated tests yet. Manually verify it's up:
-
+```text
+GET /health
+GET /delay-stage/{hubId}
+POST /delay-stage/{hubId}
 ```
-curl http://localhost:7052/health   # -> OK
+
+POST body:
+
+```json
+{"stage": 3}
 ```
 
-To add real tests, add JUnit 5 + the Surefire plugin to `pom.xml`, put tests under
-`src/test/java/co/wethinkcode/logisticsconnect/`, and run `mvn test`.
+Stages must be integers from 0 through 8. Invalid requests return HTTP 400. A stage change is
+published as:
+
+```json
+{"hubId":"H-500","stage":3,"timestamp":"2026-07-18T10:15:00Z"}
+```
+
+The same stage posted twice is idempotent: the second request returns successfully but does not
+publish a duplicate event. If the broker is unavailable, the change returns HTTP 503 and the local
+state is not advanced.

@@ -14,20 +14,23 @@ import javax.jms.Topic;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Subscribes to package-status-topic and keeps the latest stage per hub in memory. */
-public class DelayStageSubscriber implements AutoCloseable {
-    private static final int DEFAULT_STAGE = 0;
+/**
+ * Stage-4 subscriber. A simulated alert is emitted when a hub crosses from below
+ * the configured threshold to the threshold or above.
+ */
+public class AlertStageSubscriber implements AutoCloseable {
+    public static final int ALERT_THRESHOLD = 5;
 
     private final ObjectMapper mapper = new ObjectMapper();
     private final Map<String, Integer> latestStageByHub = new ConcurrentHashMap<>();
     private volatile boolean running;
-    private volatile Connection connection;
     private Thread reconnectThread;
+    private volatile Connection connection;
 
     public void start() throws JMSException {
         running = true;
         tryConnect();
-        reconnectThread = new Thread(this::reconnectLoop, "transit-mq-reconnector");
+        reconnectThread = new Thread(this::reconnectLoop, "alertbot-mq-reconnector");
         reconnectThread.setDaemon(true);
         reconnectThread.start();
     }
@@ -38,7 +41,7 @@ public class DelayStageSubscriber implements AutoCloseable {
                 try {
                     tryConnect();
                 } catch (JMSException e) {
-                    System.err.println("[mq] transit broker unavailable: " + e.getMessage());
+                    System.err.println("[mq] alertbot broker unavailable: " + e.getMessage());
                 }
             }
             try {
@@ -65,7 +68,7 @@ public class DelayStageSubscriber implements AutoCloseable {
         });
         newConnection.start();
         connection = newConnection;
-        System.out.println("[mq] transit subscribed to " + MqConfig.TOPIC);
+        System.out.println("[mq] alertbot subscribed to " + MqConfig.TOPIC);
     }
 
     private void onMessage(Message message) {
@@ -74,17 +77,18 @@ public class DelayStageSubscriber implements AutoCloseable {
             JsonNode json = mapper.readTree(textMessage.getText());
             String hubId = json.path("hubId").asText("").trim().toUpperCase();
             int stage = json.path("stage").asInt(-1);
-            if (hubId.isEmpty() || stage < 0 || stage > 8) return;
-            latestStageByHub.put(hubId, stage);
-            System.out.println("[mq] received stage update: " + hubId + " -> " + stage);
-        } catch (Exception e) {
-            System.err.println("[mq] failed to process message from " + MqConfig.TOPIC + ": " + e.getMessage());
-        }
-    }
+            if (hubId.isEmpty() || stage < 0) return;
 
-    public int getStage(String hubId) {
-        if (hubId == null) return DEFAULT_STAGE;
-        return latestStageByHub.getOrDefault(hubId.trim().toUpperCase(), DEFAULT_STAGE);
+            int previous = latestStageByHub.getOrDefault(hubId, 0);
+            latestStageByHub.put(hubId, stage);
+
+            if (previous < ALERT_THRESHOLD && stage >= ALERT_THRESHOLD) {
+                System.out.println("[ALERT] simulated notification: " + hubId
+                        + " reached delay stage " + stage + " (threshold " + ALERT_THRESHOLD + ")");
+            }
+        } catch (Exception e) {
+            System.err.println("[mq] alertbot failed to process message: " + e.getMessage());
+        }
     }
 
     @Override
